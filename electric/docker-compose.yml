@@ -1,15 +1,15 @@
 services:
   postgres:
     image: postgres:16-alpine
+    network_mode: host
     environment:
       POSTGRES_PASSWORD: pg
       POSTGRES_DB: electric
-    command: ["postgres", "-c", "wal_level=logical", "-c", "max_connections=200"]
-    ports: ["54321:5432"]
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_connections=200", "-c", "port=54321"]
   electric:
     image: electricsql/electric:latest
+    network_mode: host
     environment:
-      DATABASE_URL: postgresql://postgres:pg@postgres:5432/electric?sslmode=disable
+      DATABASE_URL: postgresql://postgres:pg@127.0.0.1:54321/electric?sslmode=disable
       ELECTRIC_INSECURE: "true"
-    ports: ["3000:3000"]
     depends_on: [postgres]
