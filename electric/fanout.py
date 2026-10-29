@@ -47,19 +47,29 @@ async def setup_db():
     await conn.execute("INSERT INTO items (tenant_id, price, payload) SELECT g, g * 1000, 'seed' FROM generate_series(1, 200) g")
     return conn
 
+async def get(client, url, timeout=60, tries=6):
+    """GET that retries dropped connections. Repeating a shape request is safe: the same shape comes back."""
+    for attempt in range(tries):
+        try:
+            return await client.get(url, timeout=timeout)
+        except httpx.TransportError:
+            if attempt == tries - 1:
+                raise
+            await asyncio.sleep(0.5 * (attempt + 1))
+
 async def sync_to_live(client, where):
     """Create (or join) a shape and follow it until up to date; returns (handle, offset)."""
-    r = await client.get(shape_url(where)); handle, offset = r.headers.get("electric-handle"), r.headers.get("electric-offset")
+    r = await get(client, shape_url(where)); handle, offset = r.headers.get("electric-handle"), r.headers.get("electric-offset")
     for _ in range(20):
         if r.headers.get("electric-up-to-date") is not None: break
-        r = await client.get(shape_url(where, handle, offset)); offset = r.headers.get("electric-offset", offset)
+        r = await get(client, shape_url(where, handle, offset)); offset = r.headers.get("electric-offset", offset)
     return handle, offset
 
-async def create_shapes(client, kind, n, concurrency=16):
+async def create_shapes(client, kind, n, concurrency=8):
     sem = asyncio.Semaphore(concurrency)
     async def one(k):
         async with sem:
-            r = await client.get(shape_url(where_for(kind, k)))
+            r = await get(client, shape_url(where_for(kind, k)))
             if r.status_code >= 400: raise SystemExit(f"shape creation failed ({r.status_code}): {r.text[:200]}")
     await asyncio.gather(*(one(k) for k in range(1, n + 1)))
 
@@ -67,14 +77,14 @@ async def probe(client, conn, rounds):
     """Time from an insert's commit to its arrival on a subscribed shape that matches only probe rows."""
     where = "tenant_id = -1"; handle, offset = await sync_to_live(client, where); lat = []
     for i in range(rounds):
-        live = asyncio.create_task(client.get(shape_url(where, handle, offset, live=True), timeout=30))
+        live = asyncio.create_task(get(client, shape_url(where, handle, offset, live=True), timeout=30))
         await asyncio.sleep(0.3)
         token = f"probe-{i}-{time.time_ns()}"     # unique, so an earlier row can never stop the clock
         await conn.execute("INSERT INTO items (tenant_id, price, payload) VALUES (-1, -1, $1)", token)
         t = time.perf_counter(); r = await live
         while token not in r.text:                 # stale data or a control message: keep polling
             offset = r.headers.get("electric-offset", offset)
-            r = await client.get(shape_url(where, handle, offset, live=True), timeout=30)
+            r = await get(client, shape_url(where, handle, offset, live=True), timeout=30)
         lat.append((time.perf_counter() - t) * 1000); offset = r.headers.get("electric-offset", offset)
     return lat
 
