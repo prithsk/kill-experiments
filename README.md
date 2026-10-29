@@ -9,20 +9,26 @@ them in a GitHub Codespace or on Linux.
 ## Results
 
 <!-- results:start -->
-### DBOS: batching step checkpoints, first run
+### DBOS: batching step checkpoints
 
-DBOS writes one Postgres transaction per workflow step. On a 1-CPU Linux sandbox with real fsync, Postgres 16 with
-fsync and synchronous_commit on:
+DBOS writes one Postgres transaction per workflow step. Postgres 16 with fsync and synchronous_commit on.
 
-| Workflows | One commit per step, DBOS today | Postgres commit_delay | Combiner | Combiner vs best baseline |
-|---|---|---|---|---|
-| 1 | 4,155 steps/s | 4,694 steps/s | 3,891 steps/s | 0.8x |
-| 8 | 9,103 steps/s | 4,648 steps/s | 19,748 steps/s | 2.2x |
-| 64 | 11,182 steps/s | 15,526 steps/s | 74,226 steps/s | 4.8x |
+**GitHub Codespaces, 2 CPUs, fsync 0.896 ms:**
 
-At 64 workflows the combiner also cut p99 step latency from 7.73 ms to 1.54 ms. Every acknowledged step was in the
-table exactly once in every run. With one workflow the combiner's queue costs a little, so a real patch should bypass
-it when nothing else is waiting. **Verdict: survives.**
+| Workflows | One commit per step, DBOS today | Postgres commit_delay | Combiner | Combiner vs best baseline | p99, best baseline to combiner |
+|---|---|---|---|---|---|
+| 1 | 1,042 steps/s | 1,140 steps/s | 1,005 steps/s | 0.9x | 3.63 ms to 4.18 ms |
+| 8 | 2,852 steps/s | 2,595 steps/s | 6,566 steps/s | 2.3x | 7.52 ms to 4.83 ms |
+| 64 | 4,894 steps/s | 5,789 steps/s | 24,030 steps/s | 4.2x | 26.28 ms to 6.42 ms |
+| 256 | 4,658 steps/s | 5,163 steps/s | 36,369 steps/s | 7.0x | 141.52 ms to 13.90 ms |
+
+**1-CPU Linux sandbox, faster disk:** 4.8x the better baseline at 64 workflows, with p99 from 7.73 ms to 1.54 ms.
+
+One commit per step flattens out near 4,700 steps/s; the combiner keeps scaling, and at 256 workflows it cuts p99
+step latency about 10x. Every acknowledged step was in the table exactly once in every run. With one workflow the
+combiner's queue costs a little, so a real patch should bypass it when nothing else is waiting. This applies to
+`@DBOS.step` checkpoints, which DBOS writes as their own insert; `@DBOS.transaction` checkpoints share the user's
+transaction and cannot be merged across workflows. **Verdict: survives.**
 
 ### Electric SQL: shape matching for WHERE clauses it can't index
 
