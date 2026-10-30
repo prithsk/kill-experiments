@@ -32,7 +32,19 @@ transaction and cannot be merged across workflows. **Verdict: survives.**
 
 ### Electric SQL: shape matching for WHERE clauses it can't index
 
-Not run yet. The harness is tested against a fake Electric server that adds a known per-shape cost, and it detects it.
+A fresh Postgres 16 and Electric 1.8.1 per configuration in a GitHub Codespace. Each row times one insert from its
+commit until it reaches a subscribed probe shape, waiting for that exact row; p50 of 10 to 15 inserts.
+
+| Shapes | Indexed, `tenant_id = k` | Unindexed, `price BETWEEN ...` | Unindexed vs indexed |
+|---|---|---|---|
+| 0 | 2.9 ms | | |
+| 2,000 | 2.9 ms | 9.7 ms | 3.4x |
+| 10,000 | 3.1 ms | 69.5 ms | 22.2x |
+
+Electric's index for `field = constant` holds flat at 10,000 shapes. Range shapes add cost to every write, and the
+cost grew faster than the shape count in these two runs: 5x more shapes made the added delay about 10x larger. At
+10,000 range shapes the p90 reached 93.7 ms. This tested range clauses only. **Verdict: survives.** An index for range
+clauses, like the one Electric already has for equality, should flatten it.
 <!-- results:end -->
 
 ## DBOS combiner, `dbos/combiner.py`
