@@ -30,6 +30,8 @@ combiner's queue costs a little, so a real patch should bypass it when nothing e
 `@DBOS.step` checkpoints, which DBOS writes as their own insert; `@DBOS.transaction` checkpoints share the user's
 transaction and cannot be merged across workflows. **Verdict: survives.**
 
+**Follow-up inside real DBOS:** batching reached about 1.5x at 64 workflows, because each real step runs two transactions, about 13 round trips with network latency, and about 2,500 Python calls, and batching shares only one of the transactions. The bare-insert test above measured the commit alone. Details at [prithsk/dbos-step-cost](https://github.com/prithsk/dbos-step-cost).
+
 ### Electric SQL: shape matching for WHERE clauses it can't index
 
 A fresh Postgres 16 and Electric 1.8.1 per configuration in a GitHub Codespace. Each row times one insert from its
